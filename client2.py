@@ -2,6 +2,8 @@ import requests
 import socket
 import webbrowser
 import json
+import os
+from pathlib import Path
 
 BASE_URL = "http://127.0.0.1:5000"
 
@@ -40,7 +42,8 @@ def solve_level_3():
     print("\nLevel 3: ROT13 Challenge")
     response = requests.get(f"{BASE_URL}/get-level3")
     if response.status_code == 200:
-        encoded = response.json().get("rot13")
+        # Fix: Server returns "encrypted_challenge" not "rot13"
+        encoded = response.json().get("encrypted_challenge")
         print("ROT13 encoded flag:", encoded)
         ans = input("Enter the decoded flag: ").strip()
         resp = requests.post(f"{BASE_URL}/solve-level3", json={"answer": ans})
@@ -111,14 +114,34 @@ def solve_level_6():
 
 def solve_level_7():
     print("\nLevel 7: Log File Hex Challenge")
-    print("A log file 'activity.log' has been created on your Desktop.")
-    ans = input("Enter the flag decoded from the hex string in the log file: ").strip()
-    response = requests.post(f"{BASE_URL}/solve-level7", json={"answer": ans})
+    # Fix: Call the server endpoint to create the log file
+    print("Requesting the server to create the log file...")
+    response = requests.get(f"{BASE_URL}/level7")
     if response.status_code == 200:
         print(response.json().get("message"))
-        solve_level_8()
+        desktop_path = Path.home() / "Desktop" / "activity.log"
+        print(f"Log file should be created at: {desktop_path}")
+        
+        if os.path.exists(desktop_path):
+            print("Log file found!")
+            with open(desktop_path, 'r') as file:
+                log_content = file.read()
+                print("Log file content preview:")
+                print(log_content[:100] + "..." if len(log_content) > 100 else log_content)
+        else:
+            print("Warning: Log file not found at the expected location.")
+            print("You may need to manually check for the log file or try again.")
+        
+        ans = input("Enter the flag decoded from the hex string in the log file: ").strip()
+        response = requests.post(f"{BASE_URL}/solve-level7", json={"answer": ans})
+        if response.status_code == 200:
+            print(response.json().get("message"))
+            solve_level_8()
+        else:
+            print(response.json().get("message"))
+            solve_level_7()
     else:
-        print(response.json().get("message"))
+        print("Error retrieving Level 7 challenge.")
         solve_level_7()
 
 def solve_level_8():
@@ -158,6 +181,7 @@ def solve_level_9():
         solve_level_9()
 
 def main():
+    print("Starting CTF Challenge...")
     solve_level_1()
 
 if __name__ == "__main__":
