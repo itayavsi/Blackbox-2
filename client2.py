@@ -1,8 +1,34 @@
 import os
 import requests
-import subprocess
+import winreg
+import logging
 
 BASE_URL = "http://127.0.0.1:5000"
+
+def get_registry_value(key_path, value_name):
+    """Retrieve a value from the Windows Registry."""
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
+        value, _ = winreg.QueryValueEx(key, value_name)
+        winreg.CloseKey(key)
+        return str(value)
+    except FileNotFoundError:
+        return '1'  # Default to locked
+    except Exception as e:
+        logging.error(f"Registry read error: {e}")
+        return '1'
+
+def set_registry_value(key_path, value_name, value):
+    """Set a value in the Windows Registry."""
+    try:
+        # Ensure the key exists
+        key, _ = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+        winreg.SetValueEx(key, value_name, 0, winreg.REG_SZ, str(value))
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        logging.error(f"Registry write error: {e}")
+        return False
 
 def solve_level_0():
     print("Level 0: Binary-to-Decimal Challenge")
@@ -15,8 +41,12 @@ def solve_level_0():
         if post_resp.status_code == 200:
             print(post_resp.json().get("message"))
             print("Level 0 completed.")
-            os.environ["LockAdministrator"] = "1"  # Update it for the script
-            os.system("set LockAdministrator=1")  # Update it for the shell
+            
+            # Set initial registry value
+            key_path = r"SOFTWARE\CTF_Simulation"
+            value_name = "LockAdministrator"
+            set_registry_value(key_path, value_name, '1')
+            
             return solve_level_1()
         else:
             print(post_resp.json().get("message"))
@@ -31,33 +61,42 @@ def solve_level_1():
     if response.status_code == 200:
         challenge_info = response.json()
         print("\nChallenge:", challenge_info.get("challenge"))
+        print("Registry Key:", challenge_info.get("registry_key"))
+        print("Value Name:", challenge_info.get("value_name"))
 
-    print("Press Enter after unlocking the Administrator to reveal the flag")
-    print("Current LockAdministrator:", get_env_var("LockAdministrator"))
+    # Registry key for storing LockAdministrator status
+    key_path = r"SOFTWARE\CTF_Simulation"
+    value_name = "LockAdministrator"
 
-    ans = input("\nEnter the flag from the system_log.txt: ").strip()
-    
-    # Attempt to submit the flag
-    post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
-    if post_resp.status_code == 200:
-        print(post_resp.json().get("message"))
-        print("Level 1 completed.")
-        return True
-    else:
-        print(post_resp.json().get("message"))
-        return solve_level_1()
+    while True:
+        print("\nPress Enter to check current status")
+        input()  # Wait for user to press Enter
 
-def get_env_var(var_name):
-    """Fetch updated environment variable value."""
-    result = subprocess.run(['cmd.exe', '/c', f'echo %{var_name}%'], capture_output=True, text=True)
-    return result.stdout.strip()
+        # Dynamically fetch current registry value
+        current_lock_status = get_registry_value(key_path, value_name)
+        print("Current LockAdministrator:", current_lock_status)
+
+        if current_lock_status == '0':
+            ans = input("\nEnter the flag from the system_log.txt: ").strip()
+            
+            # Attempt to submit the flag
+            post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
+            if post_resp.status_code == 200:
+                print(post_resp.json().get("message"))
+                print("Level 1 completed.")
+                return True
+            else:
+                print(post_resp.json().get("message"))
+        else:
+            print("Administrator directory is still locked. Change the LockAdministrator registry value to 0.")
 
 def main():
     print("Starting CTF Challenge...")
     
-    # Set initial environment variable
-    os.environ["LockAdministrator"] = "1"  # For the script
-    os.system("set LockAdministrator=1")  # For the shell
+    # Set initial registry value
+    key_path = r"SOFTWARE\CTF_Simulation"
+    value_name = "LockAdministrator"
+    set_registry_value(key_path, value_name, '1')
     
     solve_level_0()
 
