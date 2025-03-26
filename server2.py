@@ -1,10 +1,9 @@
- return make_response(jsonify({"message": "Level 1 solved!"}), 200)import os
+import os
 import random
 import string
 import logging
+import winreg as reg
 from flask import Flask, jsonify, make_response, request
-import subprocess
-
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
@@ -12,6 +11,41 @@ app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.d
 # Flags for different levels
 FLAG_0 = "42"
 FLAG_1 = "FileSystemMasterKey2024!"
+
+@app.before_request
+def initialize():
+    setup_level1_registry()
+
+def setup_level1_registry():
+    key_path = r"SOFTWARE\CTF_Simulation"
+    try:
+        # Create or open the key
+        ctf_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
+        
+        # Set the LockAdministrator value, defaulting to '1' (locked)
+        reg.SetValueEx(ctf_key, "LockAdministrator", 0, reg.REG_SZ, "1")
+        
+        # Close the key
+        reg.CloseKey(ctf_key)
+    except PermissionError:
+        print("Error: Registry setup failed! Ensure the server is running with admin privileges.")
+    except Exception as e:
+        print(f"Unexpected error during registry setup: {e}")
+
+def get_registry_value(key_path, value_name):
+    """Retrieve a value from the Windows Registry."""
+    try:
+        key = reg.OpenKey(reg.HKEY_CURRENT_USER, key_path, 0, reg.KEY_READ)
+        value, _ = reg.QueryValueEx(key, value_name)
+        reg.CloseKey(key)
+        return str(value)
+    except FileNotFoundError:
+        # If key doesn't exist, create it and return default value
+        setup_level1_registry()
+        return '1'
+    except Exception as e:
+        logging.error(f"Registry read error: {e}")
+        return '1'
 
 @app.route('/get-level0', methods=["GET"])
 def get_level0():
@@ -31,10 +65,13 @@ def solve_level1():
     data = request.get_json()
     answer = data.get("answer")
     
-    # Check if environment variable is correctly set
-    lock_status = get_env_var()
-    print("Current LockAdministrator:", get_env_var("LockAdministrator"))
-
+    # Registry key for storing LockAdministrator status
+    key_path = r"SOFTWARE\CTF_Simulation"
+    value_name = "LockAdministrator"
+    
+    # Check if registry variable is correctly set
+    lock_status = get_registry_value(key_path, value_name)
+    print("Current LockAdministrator:", lock_status)
     
     # Setup the flag location
     base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
@@ -45,7 +82,7 @@ def solve_level1():
             # Ensure the directory exists
             os.makedirs(os.path.dirname(flag_location), exist_ok=True)
             with open(flag_location, 'w') as f:
-                f.write("FLAG_1")                           
+                f.write(FLAG_1)                           
             if answer == FLAG_1:
                 return make_response(jsonify({"message": "Level 1 solved!"}), 200)
             else:
@@ -92,49 +129,15 @@ def setup_level1_filesystem():
 def get_level1():
     base_path = setup_level1_filesystem()
     return jsonify({
-        "challenge": "Unlock the Administrator directory by changing the LockAdministrator environment variable",
+        "challenge": "Unlock the Administrator directory by changing the LockAdministrator registry value",
         "base_directory": base_path,
-        "environment_variable": "LockAdministrator"
+        "registry_key": r"HKEY_CURRENT_USER\SOFTWARE\CTF_Simulation",
+        "value_name": "LockAdministrator"
     })
 
-    data = request.get_json()
-    answer = data.get("answer")
-    
-    # Check if environment variable is correctly set
-    lock_status = os.environ.get('LockAdministrator')
-    
-    # Setup the flag location
-    base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
-    flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-    
-    if lock_status == '0':
-        try:
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(flag_location), exist_ok=True)
-            
-            # Write the flag to the file when lock is removed
-            with open(flag_location, 'w') as f:
-                f.write(FLAG_1)
-            
-            if answer == FLAG_1:
-                return make_response(jsonify({"message": "Level 1 solved!"}), 200)
-            else:
-                return make_response(jsonify({"message": "Unlock Administrator directory! Flag revealed!"}), 200)
-        except Exception as e:
-            logging.error(f"Error writing flag file: {e}")
-            return make_response(jsonify({"message": "Error accessing file system."}), 500)
-    
-    return make_response(jsonify({"message": "Incorrect answer or Administrator directory still locked."}), 400)
-
-
-def get_env_var():
-    """Fetch updated environment variable value."""
-    result = subprocess.run(['cmd.exe', '/c', f'echo %LockAdministrator%'], capture_output=True, text=True)
-    return result.stdout.strip()
-
-
 if __name__ == "__main__":
-    # Set initial lock status
+    # Set up logging
     logging.basicConfig(level=logging.INFO)
-    print(f"LockAdministrator: {os.environ.get('LockAdministrator')}")
+    
+    # Run the Flask app
     app.run(debug=True, port=5000)
