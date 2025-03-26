@@ -39,7 +39,7 @@ def setup_level1_filesystem():
     # Create flag file in Administrator directory
     flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
     with open(flag_location, 'w') as f:
-        f.write(FLAG_1)
+        f.write("Acsses deined: LockAdministrator set to '1'")
 
     return base_path
 
@@ -71,6 +71,12 @@ def solve_level1():
     
     # Check if environment variable is correctly set
     lock_status = os.environ.get('LockAdministrator')
+    if lock_status == '0' and answer != FLAG_1:
+        flag_location = os.path.join(r"C:\Program Files\CTF_Challenge\Users\Administrator\secret_logs", "system_log.txt")
+    with open(flag_location, 'w') as f:
+        f.write(FLAG_1)
+        return make_response(jsonify({"Unlock Administrator directory! Flag reveled!"}), 200)
+
     
     if lock_status == '0' and answer == FLAG_1:
         return make_response(jsonify({"message": "Level 1 solved!"}), 200)
@@ -81,4 +87,5 @@ if __name__ == "__main__":
     os.environ['LockAdministrator'] = '1'
     
     logging.basicConfig(level=logging.INFO)
+    print(f"LockAdministrator: {os.environ.get('LockAdministrator')}")
     app.run(debug=True, port=5000)
