@@ -1,6 +1,6 @@
 import os
 import requests
-from pathlib import Path
+import subprocess
 
 BASE_URL = "http://127.0.0.1:5000"
 
@@ -15,6 +15,8 @@ def solve_level_0():
         if post_resp.status_code == 200:
             print(post_resp.json().get("message"))
             print("Level 0 completed.")
+            os.environ["LockAdministrator"] = "1"  # Update it for the script
+            os.system("set LockAdministrator=1")  # Update it for the shell
             return solve_level_1()
         else:
             print(post_resp.json().get("message"))
@@ -28,29 +30,36 @@ def solve_level_1():
     response = requests.get(f"{BASE_URL}/get-level1")
     if response.status_code == 200:
         challenge_info = response.json()
-        
-    print("\nPossible steps to solve:")
-    print("1. Change the environment variable LockAdministrator to '0'")
-    print("2. Use 'import os' and 'os.environ[\"LockAdministrator\"] = \"0\"'")
-    print("Press Enter after Unlock the Administrator to Refreash and revel the flag")
-                    
+        print("\nChallenge:", challenge_info.get("challenge"))
+
+    print("Press Enter after unlocking the Administrator to reveal the flag")
+    print("Current LockAdministrator:", get_env_var("LockAdministrator"))
+
     ans = input("\nEnter the flag from the system_log.txt: ").strip()
-                    
-                    # Attempt to submit the flag
+    
+    # Attempt to submit the flag
     post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
     if post_resp.status_code == 200:
-      print(post_resp.json().get("message"))
-      print("Level 1 completed.")
-      return True
+        print(post_resp.json().get("message"))
+        print("Level 1 completed.")
+        return True
     else:
-       print(post_resp.json().get("message"))
-       return solve_level_1()
+        print(post_resp.json().get("message"))
+        return solve_level_1()
 
+def get_env_var(var_name):
+    """Fetch updated environment variable value."""
+    result = subprocess.run(['cmd.exe', '/c', f'echo %{var_name}%'], capture_output=True, text=True)
+    return result.stdout.strip()
 
 def main():
     print("Starting CTF Challenge...")
-    solve_level_0()
     
+    # Set initial environment variable
+    os.environ["LockAdministrator"] = "1"  # For the script
+    os.system("set LockAdministrator=1")  # For the shell
+    
+    solve_level_0()
 
 if __name__ == "__main__":
     main()
