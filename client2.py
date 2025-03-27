@@ -89,7 +89,6 @@ def solve_level_1():
       post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
       if post_resp.status_code == 200:
        print(post_resp.json().get("message"))
-       print("Level 1 completed.")
        return True 
       else:
         print(post_resp.json().get("message"))
