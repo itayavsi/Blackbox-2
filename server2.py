@@ -65,33 +65,11 @@ def solve_level0():
 @app.route('/solve-level1', methods=["POST"])
 def solve_level1():
     data = request.get_json()
-    
-    # Registry key for storing LockAdministrator status
-    key_path = r"SOFTWARE\CTF_Simulation"
-    value_name = "LockAdministrator"
-    
-    # Check if registry variable is correctly set
-    lock_status = get_registry_value(key_path, value_name)
-    print("Current LockAdministrator:", lock_status)
-    
-    # Setup the flag location
-    base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
-    flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-    
-    if lock_status == '0' and data != FLAG_1: 
-        os.makedirs(os.path.dirname(flag_location), exist_ok=True)
-        with open(flag_location, 'w') as f:
-            f.write(FLAG_1) 
-        return make_response(jsonify({
-          "message": "Administrator directory unlocked. Flag is ready!",
-          "lock_status": lock_status
-           }), 200)
-    
-    if lock_status == '0' and data == FLAG_1: 
-        return make_response(jsonify({
-            "message": "Nice.",
-            "lock_status": lock_status
-        }), 200)
+    answer = data.get("answer")
+    if answer == FLAG_1:
+        return make_response(jsonify({"message": "Level 1 solved!"}), 200)
+        
+    return make_response(jsonify({"message": "Incorrect answer. Try again."}), 400)
 
 def setup_level1_filesystem():
     """
