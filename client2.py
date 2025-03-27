@@ -5,6 +5,8 @@ import logging
 
 BASE_URL = "http://127.0.0.1:5000"
 
+FLAG_1 = "FileSystemMasterKey2024!"
+
 def get_registry_value(key_path, value_name):
     """Retrieve a value from the Windows Registry."""
     try:
@@ -68,27 +70,32 @@ def solve_level_1():
     key_path = r"SOFTWARE\CTF_Simulation"
     value_name = "LockAdministrator"
 
-    while True:
-        print("\nPress Enter to check current status")
-        input()  # Wait for user to press Enter
+    print("\nPress Enter to check current status")
+    input()  # Wait for user to press Enter
 
-        # Dynamically fetch current registry value
-        current_lock_status = get_registry_value(key_path, value_name)
-        print("Current LockAdministrator:", current_lock_status)
+    # Dynamically fetch current registry value
+    current_lock_status = get_registry_value(key_path, value_name)
+    print("Current LockAdministrator:", current_lock_status)
 
-        if current_lock_status == '0':
-            ans = input("\nEnter the flag from the system_log.txt: ").strip()
+    if current_lock_status == '0':
+      base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
+      flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
+      os.makedirs(os.path.dirname(flag_location), exist_ok=True)
+      with open(flag_location, 'w') as f:
+        f.write(FLAG_1)
+      ans = input("\nEnter the flag from the system_log.txt: ").strip()
             
             # Attempt to submit the flag
-            post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
-            if post_resp.status_code == 200:
-                print(post_resp.json().get("message"))
-                print("Level 1 completed.")
-                return True
-            else:
-                print(post_resp.json().get("message"))
-        else:
-            print("Administrator directory is still locked. Change the LockAdministrator registry value to 0.")
+      post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
+      if post_resp.status_code == 200:
+       print(post_resp.json().get("message"))
+       print("Level 1 completed.")
+       return True 
+      else:
+        print(post_resp.json().get("message"))
+    else:
+        print("Administrator directory is still locked. Change the LockAdministrator registry value to 0.")
+        solve_level_1()
 
 def main():
     print("Starting CTF Challenge...")
