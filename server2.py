@@ -12,6 +12,8 @@ app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.d
 FLAG_0 = "42"
 FLAG_1 = "FileSystemMasterKey2024!"
 
+AcssesCounter = 0
+
 @app.before_request
 def initialize():
     setup_level1_registry()
@@ -63,7 +65,6 @@ def solve_level0():
 @app.route('/solve-level1', methods=["POST"])
 def solve_level1():
     data = request.get_json()
-    answer = data.get("answer")
     
     # Registry key for storing LockAdministrator status
     key_path = r"SOFTWARE\CTF_Simulation"
@@ -77,21 +78,20 @@ def solve_level1():
     base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
     flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
     
-    if lock_status == '0': 
-        try:
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(flag_location), exist_ok=True)
-            with open(flag_location, 'w') as f:
-                f.write(FLAG_1)                           
-            if answer == FLAG_1:
-                return make_response(jsonify({"message": "Level 1 solved!"}), 200)
-            else:
-                return make_response(jsonify({"message": "Unlock Administrator directory! Flag revealed!"}), 200)
-        except Exception as e:
-            logging.error(f"Error writing flag file: {e}")
-            return make_response(jsonify({"message": "Error accessing file system."}), 500)
+    if lock_status == '0' and data != FLAG_1: 
+        os.makedirs(os.path.dirname(flag_location), exist_ok=True)
+        with open(flag_location, 'w') as f:
+            f.write(FLAG_1) 
+        return make_response(jsonify({
+          "message": "Administrator directory unlocked. Flag is ready!",
+          "lock_status": lock_status
+           }), 200)
     
-    return make_response(jsonify({"message": "Incorrect answer or Administrator directory still locked."}), 400)
+    if lock_status == '0' and data == FLAG_1: 
+        return make_response(jsonify({
+            "message": "Nice.",
+            "lock_status": lock_status
+        }), 200)
 
 def setup_level1_filesystem():
     """
@@ -120,10 +120,19 @@ def setup_level1_filesystem():
 
     # Create initial flag file in Administrator directory
     flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-    with open(flag_location, 'w') as f:
-        f.write("Access denied: LockAdministrator set to '1'")
+    WriteAcsses(flag_location,base_path)
 
     return base_path
+
+def WriteAcsses(flag_location,base_path):
+    if AcssesCounter == 0:
+        flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
+        with open(flag_location, 'w') as f:
+            f.write("Access denied: LockAdministrator set to '1'")
+        AcssesCounter+1
+    else:
+        return True
+
 
 @app.route('/get-level1', methods=["GET"])
 def get_level1():
