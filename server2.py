@@ -11,12 +11,15 @@ app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.d
 # Flags for different levels
 FLAG_0 = "42"
 FLAG_1 = "FileSystemMasterKey2024!"
+FLAG_2 = "AccessLevelUnlocked2024!"  # New flag for Stage 2
 
 AcssesCounter = 0
 
 @app.before_request
 def initialize():
     setup_level1_registry()
+    setup_level2_registry()
+
 
 def setup_level1_registry():
     key_path = r"SOFTWARE\CTF_Simulation"
@@ -33,6 +36,18 @@ def setup_level1_registry():
         print("Error: Registry setup failed! Ensure the server is running with admin privileges.")
     except Exception as e:
         print(f"Unexpected error during registry setup: {e}")
+
+def setup_level2_registry():
+    """Setup registry for Stage 2 level"""
+    key_path = r"SOFTWARE\CTF_Simulation"
+    try:
+        ctf_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
+        # Initialize with low access level
+        reg.SetValueEx(ctf_key, "UserAccessLevel", 0, reg.REG_SZ, "8")
+        reg.CloseKey(ctf_key)
+    except Exception as e:
+        print(f"Stage 2 Registry setup error: {e}")
+
 
 def get_registry_value(key_path, value_name):
     """Retrieve a value from the Windows Registry."""
@@ -121,6 +136,38 @@ def get_level1():
         "registry_key": r"HKEY_CURRENT_USER\SOFTWARE\CTF_Simulation",
         "value_name": "LockAdministrator"
     })
+
+@app.route('/get-level2', methods=["GET"])
+def get_level2():
+    """Retrieve challenge for Stage 2"""
+    return jsonify({
+        "challenge": "Modify your access level from 8 to 15 (hex 'f')",
+        "current_access_level": "8",
+        "target_access_level": "15",
+        "hint": "Check the registry value UserAccessLevel"
+    })
+
+@app.route('/solve-level2', methods=["POST"])
+def solve_level2():
+    """Validate Stage 2 solution"""
+    data = request.get_json()
+    answer = data.get("answer")
+    
+    # Check registry access level
+    key_path = r"SOFTWARE\CTF_Simulation"
+    try:
+        key = reg.OpenKey(reg.HKEY_CURRENT_USER, key_path, 0, reg.KEY_READ)
+        current_level, _ = reg.QueryValueEx(key, "UserAccessLevel")
+        reg.CloseKey(key)
+    except Exception:
+        return make_response(jsonify({"message": "Error reading access level"}), 400)
+    
+    if current_level == "15" and answer == FLAG_2:
+        return make_response(jsonify({"message": "Level 2 solved!"}), 200)
+    
+    return make_response(jsonify({"message": "Access level not unlocked or incorrect flag"}), 400)
+
+
 
 if __name__ == "__main__":
     # Set up logging
