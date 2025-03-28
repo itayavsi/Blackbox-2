@@ -2,6 +2,7 @@ import os
 import requests
 import winreg
 import logging
+import json
 
 BASE_URL = "http://127.0.0.1:5000"
 
@@ -97,7 +98,7 @@ def solve_level_1():
         solve_level_1()
 
 def solve_level_2():
-    """Solve Stage 2: Access Level Challenge"""
+    """Solve Stage 2: Access Level Challenge with JSON Document"""
     print("\nLevel 2: Access Level Challenge")
     
     # Get challenge details
@@ -105,21 +106,28 @@ def solve_level_2():
     if response.status_code == 200:
         challenge_info = response.json()
         print("\nChallenge:", challenge_info.get("challenge"))
+        print("File Path:", challenge_info.get("file_path"))
         print("Current Access Level:", challenge_info.get("current_access_level"))
         print("Target Access Level:", challenge_info.get("target_access_level"))
-
-    # Registry key for storing access level
-    key_path = r"SOFTWARE\CTF_Simulation"
-    value_name = "UserAccessLevel"
-
-    # Modify access level
-    try:
-        # Open or create the key
-        key, _ = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
         
-        # Set access level to 15 (hex 'f')
-        winreg.SetValueEx(key, value_name, 0, winreg.REG_SZ, "15")
-        winreg.CloseKey(key)
+        # Locate the user database file
+        documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+        user_db_path = os.path.join(documents_path, "user_db.json")
+        
+        # Read the current user database
+        with open(user_db_path, 'r') as f:
+            user_db = json.load(f)
+        
+        # Print current database for user to see
+        print("\nCurrent User Database:")
+        print(json.dumps(user_db, indent=2))
+        
+        # Modify access level
+        user_db['users'][0]['access_level'] = 15
+        
+        # Write back to the file
+        with open(user_db_path, 'w') as f:
+            json.dump(user_db, f, indent=4)
         
         print("\nAccess level modified successfully!")
         
@@ -133,11 +141,9 @@ def solve_level_2():
             return True
         else:
             print(post_resp.json().get("message"))
-            return False
-    
-    except Exception as e:
-        print(f"Error modifying registry: {e}")
-        return False
+            return solve_level_2()
+
+
 
 def main():
     print("Starting CTF Challenge...")
@@ -147,7 +153,7 @@ def main():
     value_name = "LockAdministrator"
     set_registry_value(key_path, value_name, '1')
     
-    solve_level_0()
+    solve_level_2()
 
 if __name__ == "__main__":
     main()
