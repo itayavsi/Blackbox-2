@@ -1,177 +1,159 @@
 import os
-import random
-import string
+import requests
+import winreg
 import logging
-import winreg as reg
-from flask import Flask, jsonify, make_response, request
+import json
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
+BASE_URL = "http://127.0.0.1:5000"
 
-# Flags for different levels
-FLAG_0 = "42"
 FLAG_1 = "FileSystemMasterKey2024!"
-FLAG_2 = "AccessLevelUnlocked2024!"  # New flag for Stage 2
-
-AcssesCounter = 0
-
-@app.before_request
-def initialize():
-    setup_level1_registry()
-    setup_level2_registry()
-
-
-def setup_level1_registry():
-    key_path = r"SOFTWARE\CTF_Simulation"
-    try:
-        # Create or open the key
-        ctf_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
-        
-        # Set the LockAdministrator value, defaulting to '1' (locked)
-        reg.SetValueEx(ctf_key, "LockAdministrator", 0, reg.REG_SZ, "1")
-        
-        # Close the key
-        reg.CloseKey(ctf_key)
-    except PermissionError:
-        print("Error: Registry setup failed! Ensure the server is running with admin privileges.")
-    except Exception as e:
-        print(f"Unexpected error during registry setup: {e}")
-
-def setup_level2_registry():
-    """Setup registry for Stage 2 level"""
-    key_path = r"SOFTWARE\CTF_Simulation"
-    try:
-        ctf_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
-        # Initialize with low access level
-        reg.SetValueEx(ctf_key, "UserAccessLevel", 0, reg.REG_SZ, "8")
-        reg.CloseKey(ctf_key)
-    except Exception as e:
-        print(f"Stage 2 Registry setup error: {e}")
-
 
 def get_registry_value(key_path, value_name):
     """Retrieve a value from the Windows Registry."""
     try:
-        key = reg.OpenKey(reg.HKEY_CURRENT_USER, key_path, 0, reg.KEY_READ)
-        value, _ = reg.QueryValueEx(key, value_name)
-        reg.CloseKey(key)
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
+        value, _ = winreg.QueryValueEx(key, value_name)
+        winreg.CloseKey(key)
         return str(value)
     except FileNotFoundError:
-        # If key doesn't exist, create it and return default value
-        setup_level1_registry()
-        return '1'
+        return '1'  # Default to locked
     except Exception as e:
         logging.error(f"Registry read error: {e}")
         return '1'
 
-@app.route('/get-level0', methods=["GET"])
-def get_level0():
-    return jsonify({"binary": "101010"})
-
-@app.route('/solve-level0', methods=["POST"])
-def solve_level0():
-    data = request.get_json()
-    answer = data.get("answer")
-    if answer == FLAG_0:
-        return make_response(jsonify({"message": "Level 0 solved!"}), 200)
-        
-    return make_response(jsonify({"message": "Incorrect answer. Try again."}), 400)
-
-@app.route('/solve-level1', methods=["POST"])
-def solve_level1():
-    data = request.get_json()
-    answer = data.get("answer")
-    if answer == FLAG_1:
-        return make_response(jsonify({"message": "Level 1 solved!"}), 200)
-        
-    return make_response(jsonify({"message": "Incorrect answer. Try again."}), 400)
-
-def setup_level1_filesystem():
-    """
-    Create a complex file system environment for Level 1 challenge
-    """
-    base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
-    os.makedirs(base_path, exist_ok=True)
-
-    # Create nested directories
-    hidden_dirs = [
-        os.path.join(base_path, "System", "hidden_config"),
-        os.path.join(base_path, "Users", "Administrator", "secret_logs"),
-        os.path.join(base_path, ".system_data"),
-    ]
-
-    for dir_path in hidden_dirs:
-        os.makedirs(dir_path, exist_ok=True)
-        
-        # Hide directories on Windows
-        if os.name == 'nt':
-            try:
-                import ctypes
-                ctypes.windll.kernel32.SetFileAttributesW(dir_path, 0x02)  # FILE_ATTRIBUTE_HIDDEN
-            except Exception as e:
-                logging.error(f"Could not hide directory {dir_path}: {e}")
-
-    # Create initial flag file in Administrator directory
-    flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-    WriteAcsses(flag_location,base_path)
-
-    return base_path
-
-def WriteAcsses(flag_location,base_path):
-    if AcssesCounter == 0:
-        flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-        with open(flag_location, 'w') as f:
-            f.write("Access denied: LockAdministrator set to '1'")
-        AcssesCounter+1
-    else:
-        return True
-
-
-@app.route('/get-level1', methods=["GET"])
-def get_level1():
-    base_path = setup_level1_filesystem()
-    return jsonify({
-        "challenge": "Unlock the Administrator directory by changing the LockAdministrator registry value",
-        "base_directory": base_path,
-        "registry_key": r"HKEY_CURRENT_USER\SOFTWARE\CTF_Simulation",
-        "value_name": "LockAdministrator"
-    })
-
-@app.route('/get-level2', methods=["GET"])
-def get_level2():
-    """Retrieve challenge for Stage 2"""
-    return jsonify({
-        "challenge": "Modify your access level from 8 to 15 (hex 'f')",
-        "current_access_level": "8",
-        "target_access_level": "15",
-        "hint": "Check the registry value UserAccessLevel"
-    })
-
-@app.route('/solve-level2', methods=["POST"])
-def solve_level2():
-    """Validate Stage 2 solution"""
-    data = request.get_json()
-    answer = data.get("answer")
-    
-    # Check registry access level
-    key_path = r"SOFTWARE\CTF_Simulation"
+def set_registry_value(key_path, value_name, value):
+    """Set a value in the Windows Registry."""
     try:
-        key = reg.OpenKey(reg.HKEY_CURRENT_USER, key_path, 0, reg.KEY_READ)
-        current_level, _ = reg.QueryValueEx(key, "UserAccessLevel")
-        reg.CloseKey(key)
-    except Exception:
-        return make_response(jsonify({"message": "Error reading access level"}), 400)
+        # Ensure the key exists
+        key, _ = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+        winreg.SetValueEx(key, value_name, 0, winreg.REG_SZ, str(value))
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        logging.error(f"Registry write error: {e}")
+        return False
+
+def solve_level_0():
+    print("Level 0: Binary-to-Decimal Challenge")
+    response = requests.get(f"{BASE_URL}/get-level0")
+    if response.status_code == 200:
+        binary_str = response.json().get("binary")
+        print("Binary number:", binary_str)
+        ans = input("Enter its decimal value: ").strip()
+        post_resp = requests.post(f"{BASE_URL}/solve-level0", json={"answer": ans})
+        if post_resp.status_code == 200:
+            print(post_resp.json().get("message"))
+            print("Level 0 completed.")
+            
+            # Set initial registry value
+            key_path = r"SOFTWARE\CTF_Simulation"
+            value_name = "LockAdministrator"
+            set_registry_value(key_path, value_name, '1')
+            
+            return solve_level_1()
+        else:
+            print(post_resp.json().get("message"))
+            return solve_level_0()
+    else:
+        print("Failed to get Level 0 challenge.")
+        return solve_level_0()
+
+def solve_level_1():
+    print("Level 1: File System Challenge")
+    response = requests.get(f"{BASE_URL}/get-level1")
+    if response.status_code == 200:
+        challenge_info = response.json()
+        print("\nChallenge:", challenge_info.get("challenge"))
+        print("Registry Key:", challenge_info.get("registry_key"))
+        print("Value Name:", challenge_info.get("value_name"))
+
+    # Registry key for storing LockAdministrator status
+    key_path = r"SOFTWARE\CTF_Simulation"
+    value_name = "LockAdministrator"
+
+    print("\nPress Enter to check current status")
+    input()  # Wait for user to press Enter
+
+    # Dynamically fetch current registry value
+    current_lock_status = get_registry_value(key_path, value_name)
+    print("Current LockAdministrator:", current_lock_status)
+
+    if current_lock_status == '0':
+      base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
+      flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
+      os.makedirs(os.path.dirname(flag_location), exist_ok=True)
+      with open(flag_location, 'w') as f:
+        f.write(FLAG_1)
+      ans = input("\nEnter the flag from the system_log.txt: ").strip()
+            
+            # Attempt to submit the flag
+      post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
+      if post_resp.status_code == 200:
+       print(post_resp.json().get("message"))
+       return True 
+      else:
+        print(post_resp.json().get("message"))
+    else:
+        print("Administrator directory is still locked. Change the LockAdministrator registry value to 0.")
+        solve_level_1()
+
+def solve_level_2():
+    """Solve Stage 2: Access Level Challenge with JSON Document"""
+    print("\nLevel 2: Access Level Challenge")
     
-    if current_level == "15" and answer == FLAG_2:
-        return make_response(jsonify({"message": "Level 2 solved!"}), 200)
-    
-    return make_response(jsonify({"message": "Access level not unlocked or incorrect flag"}), 400)
+    # Get challenge details
+    response = requests.get(f"{BASE_URL}/get-level2")
+    if response.status_code == 200:
+        challenge_info = response.json()
+        print("\nChallenge:", challenge_info.get("challenge"))
+        print("File Path:", challenge_info.get("file_path"))
+        print("Current Access Level:", challenge_info.get("current_access_level"))
+        print("Target Access Level:", challenge_info.get("target_access_level"))
+        
+        # Locate the user database file
+        documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+        user_db_path = os.path.join(documents_path, "user_db.json")
+        
+        # Read the current user database
+        with open(user_db_path, 'r') as f:
+            user_db = json.load(f)
+        
+        # Print current database for user to see
+        print("\nCurrent User Database:")
+        print(json.dumps(user_db, indent=2))
+        
+        # Modify access level
+        user_db['users'][0]['access_level'] = 15
+        
+        # Write back to the file
+        with open(user_db_path, 'w') as f:
+            json.dump(user_db, f, indent=4)
+        
+        print("\nAccess level modified successfully!")
+        
+        # Prompt for flag
+        ans = input("Enter the flag for Level 2: ").strip()
+        
+        # Submit solution
+        post_resp = requests.post(f"{BASE_URL}/solve-level2", json={"answer": ans})
+        if post_resp.status_code == 200:
+            print(post_resp.json().get("message"))
+            return True
+        else:
+            print(post_resp.json().get("message"))
+            return solve_level_2()
 
 
+
+def main():
+    print("Starting CTF Challenge...")
+    
+    # Set initial registry value
+    key_path = r"SOFTWARE\CTF_Simulation"
+    value_name = "LockAdministrator"
+    set_registry_value(key_path, value_name, '1')
+    
+    solve_level_2()
 
 if __name__ == "__main__":
-    # Set up logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # Run the Flask app
-    app.run(debug=True, port=5000)
+    main()
