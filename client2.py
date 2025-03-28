@@ -96,6 +96,49 @@ def solve_level_1():
         print("Administrator directory is still locked. Change the LockAdministrator registry value to 0.")
         solve_level_1()
 
+def solve_level_2():
+    """Solve Stage 2: Access Level Challenge"""
+    print("\nLevel 2: Access Level Challenge")
+    
+    # Get challenge details
+    response = requests.get(f"{BASE_URL}/get-level2")
+    if response.status_code == 200:
+        challenge_info = response.json()
+        print("\nChallenge:", challenge_info.get("challenge"))
+        print("Current Access Level:", challenge_info.get("current_access_level"))
+        print("Target Access Level:", challenge_info.get("target_access_level"))
+
+    # Registry key for storing access level
+    key_path = r"SOFTWARE\CTF_Simulation"
+    value_name = "UserAccessLevel"
+
+    # Modify access level
+    try:
+        # Open or create the key
+        key, _ = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+        
+        # Set access level to 15 (hex 'f')
+        winreg.SetValueEx(key, value_name, 0, winreg.REG_SZ, "15")
+        winreg.CloseKey(key)
+        
+        print("\nAccess level modified successfully!")
+        
+        # Prompt for flag
+        ans = input("Enter the flag for Level 2: ").strip()
+        
+        # Submit solution
+        post_resp = requests.post(f"{BASE_URL}/solve-level2", json={"answer": ans})
+        if post_resp.status_code == 200:
+            print(post_resp.json().get("message"))
+            return True
+        else:
+            print(post_resp.json().get("message"))
+            return False
+    
+    except Exception as e:
+        print(f"Error modifying registry: {e}")
+        return False
+
 def main():
     print("Starting CTF Challenge...")
     
