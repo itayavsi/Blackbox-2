@@ -3,6 +3,7 @@ import requests
 import winreg
 import logging
 import json
+import hashlib
 
 BASE_URL = "http://127.0.0.1:5000"
 
@@ -26,9 +27,38 @@ def set_registry_value(key_path, value_name, value):
         print(f"Registry write error: {e}")
         return False
 
-# Original Level 0-1 Functions (Unchanged)
+def ensure_admin_exists():
+    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+    user_db_path = os.path.join(documents_path, "user_db.json")
+    default_admin_hash = hashlib.sha256("admin123".encode()).hexdigest()
+
+    # Check if the user database exists
+    if not os.path.exists(user_db_path):
+        user_db = {"users": []}
+    else:
+        with open(user_db_path, 'r') as f:
+            user_db = json.load(f)
+    
+    # Check if Admin user exists
+    if not any(user['username'] == "Admin" for user in user_db['users']):
+        admin_user = {
+            "username": "Admin",
+            "password_hash": default_admin_hash,
+            "access_level": 15,
+            "permissions": ["full"]
+        }
+        user_db['users'].append(admin_user)
+        
+        with open(user_db_path, 'w') as f:
+            json.dump(user_db, f, indent=4)
+        print("Admin user added.")
+    else:
+        print("Admin user already exists.")
+
+
+# ========== LEVEL 0-1 FUNCTIONS (UNTOUCHED) ==========
 def solve_level_0():
-    print("Level 0: Binary-to-Decimal Challenge")
+    print("\nLevel 0: Binary-to-Decimal Challenge")
     response = requests.get(f"{BASE_URL}/get-level0")
     if response.status_code == 200:
         binary_str = response.json().get("binary")
@@ -48,7 +78,7 @@ def solve_level_0():
         return solve_level_0()
 
 def solve_level_1():
-    print("Level 1: File System Challenge")
+    print("\nLevel 1: File System Challenge")
     response = requests.get(f"{BASE_URL}/get-level1")
     if response.status_code == 200:
         challenge_info = response.json()
@@ -66,31 +96,32 @@ def solve_level_1():
     print("Current LockAdministrator:", current_lock_status)
 
     if current_lock_status == '0':
-      base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
-      flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-      os.makedirs(os.path.dirname(flag_location), exist_ok=True)
-      with open(flag_location, 'w') as f:
-        f.write("FileSystemMasterKey2024!")
-      ans = input("\nEnter the flag from the system_log.txt: ").strip()
-            
-      post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
-      if post_resp.status_code == 200:
-       print(post_resp.json().get("message"))
-       solve_level_2()
-      else:
-        print(post_resp.json().get("message"))
+        base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
+        flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
+        os.makedirs(os.path.dirname(flag_location), exist_ok=True)
+        with open(flag_location, 'w') as f:
+            f.write("FileSystemMasterKey2024!")
+        ans = input("\nEnter the flag from the system_log.txt: ").strip()
+                
+        post_resp = requests.post(f"{BASE_URL}/solve-level1", json={"answer": ans})
+        if post_resp.status_code == 200:
+            print(post_resp.json().get("message"))
+            solve_level_2()
+        else:
+            print(post_resp.json().get("message"))
     else:
         print("Administrator directory is still locked. Change the LockAdministrator registry value to 0.")
         solve_level_1()
 
-# New Level 2-3 Functions
+# ========== LEVEL 2-3 FUNCTIONS ==========
 def solve_level_2():
     print("\n=== LEVEL 2: ACCESS LEVEL CHALLENGE ===")
     with requests.Session() as s:
         while True:
+            # Login/Signup menu
             print("\n1. Sign up")
             print("2. Login")
-            print("3. Exit to main menu")
+            print("3. Exit")
             choice = input("Choose option: ").strip()
 
             if choice == '1':
@@ -106,63 +137,105 @@ def solve_level_2():
                 msg = resp.json().get("message")
                 print(msg)
                 if resp.status_code == 200:
+                    handle_logged_in_menu(s)
                     break
             elif choice == '3':
                 return False
             else:
                 print("Invalid choice")
 
-        resp = s.get(f"{BASE_URL}/get-level2")
-        challenge = resp.json()
-        print(f"\n{challenge['challenge']}")
-        print(f"Target access level: {challenge['target_access_level']}")
-        print(f"JSON file: {challenge['file_path']}")
+def handle_logged_in_menu(session):
+    while True:
+        # Check user status
+        status_resp = session.get(f"{BASE_URL}/check-admin-status")
+        is_admin = status_resp.json().get("is_admin", False)
+        user_status = status_resp.json().get("status", "Regular User")
 
-        input("\nModify your access_level to 15 in the JSON file, then press Enter...")
+        print(f"\nLogged in as: {user_status}")
+        print("1. Sign out")
+        print("2. Check status")
+        print("3. Continue")
 
-        resp = s.post(f"{BASE_URL}/solve-level2")
-        result = resp.json()
-        print(f"\n{result.get('message')}")
-        if resp.status_code == 200:
-            print(f"FLAG: {result.get('flag')}")
-            return True
-        return solve_level_2()
+        choice = input("Choose option: ").strip()
+
+        if choice == '1':
+            session.post(f"{BASE_URL}/logout")
+            print("Signed out successfully")
+            break
+        elif choice == '2':
+            print(f"Your status: {user_status}")
+        elif choice == '3':
+            if is_admin:
+                verify_resp = session.post(f"{BASE_URL}/verify-level3")
+                if verify_resp.json().get("success"):
+                    print("\nGREAT! You've completed Level 3!")
+                    print("Proceeding to Level 4...")
+                    # Placeholder for Level 4
+                    return True
+                else:
+                    print("Admin password not modified. Change Admin password in user_db.json")
+            else:
+                print("Access denied! Admin privileges required.")
+        else:
+            print("Invalid choice")
 
 def solve_level_3():
-    print("\n=== LEVEL 3: ADMIN PASSWORD RESET ===")
-    with requests.Session() as s:
-        resp = s.get(f"{BASE_URL}/get-level3")
-        challenge = resp.json()
-        
-        print(f"\nChallenge: {challenge['challenge']}")
-        print("Requirements:")
-        for req in challenge['requirements']:
-            print(f"- {req}")
-        print(f"\nHint: {challenge['hint']}")
-        
-        input("\nPress Enter after modifying Admin's password_hash...")
-        
-        resp = s.post(f"{BASE_URL}/solve-level3")
-        result = resp.json()
-        
-        if resp.status_code == 200:
-            print(f"\nSUCCESS: {result['message']}")
-            print(f"FLAG: {result['flag']}")
-            return True
-        else:
-            print(f"\nERROR: {result['message']}")
-            retry = input("Try again? (y/n): ").lower()
-            if retry == 'y':
-                return solve_level_3()
+    print("\n=== LEVEL 3: CAESAR CIPHER CHALLENGE ===")
+    while True:
+        print("\n1. Open File (Encrypt .txt)")
+        print("2. Run Command")
+        print("3. Exit to Main Menu")
+        choice = input("Choose option: ").strip()
+
+        if choice == '1':
+            file_path = input("Enter the path to the .txt file: ").strip()
+            try:
+                with open(file_path, 'r') as f:
+                    text = f.read()
+                response = requests.post(f"{BASE_URL}/encrypt-file", json={"text": text})
+                if response.status_code == 200:
+                    encrypted_text = response.json().get("encrypted_text")
+                    print("\nEncrypted Content:")
+                    print(encrypted_text)
+                else:
+                    print("Error encrypting file.")
+            except Exception as e:
+                print(f"Error: {e}")
+
+        elif choice == '2':
+            cmd = input("Enter command (For enter the flag use SOLVE): ").strip().upper()
+            if cmd == "HELP":
+                response = requests.get(f"{BASE_URL}/get-encrypted-flag")
+                if response.status_code == 200:
+                    encrypted_flag = response.json().get("encrypted_flag")
+                    print(f"\nEncrypted Flag: {encrypted_flag}")
+                else:
+                    print("Failed to retrieve flag.")
+            elif cmd == "SOLVE":
+                answer = input("Enter decrypted flag: ").strip()
+                response = requests.post(f"{BASE_URL}/solve-level3", json={"answer": answer})
+                if response.status_code == 200:
+                    print(f"\n{response.json().get('message')}")
+                    return solve_level_4()
+                else:
+                    print(f"\n{response.json().get('message')}")
+            else:
+                print("Invalid command.")
+
+        elif choice == '3':
             return False
+        else:
+            print("Invalid choice.")
+
+def solve_level_4():
+    pass
 
 def main():
     print("Starting CTF Challenge...")
     set_registry_value(r"SOFTWARE\CTF_Simulation", "LockAdministrator", '1')
-    #solve_level_0()
-    #solve_level_1()
-    solve_level_2()
+    ensure_admin_exists()
     solve_level_3()
+
 
 if __name__ == "__main__":
     main()
