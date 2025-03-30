@@ -55,8 +55,28 @@ def get_registry_value(key_path, value_name):
     except Exception as e:
         logging.error(f"Registry read error: {e}")
         return '1'
+    
+def caesar_encrypt(text, shift=12):
+    encrypted = []
+    for char in text:
+        if char.isalpha():
+            shifted = ord(char) + shift
+            if char.islower():
+                if shifted > ord('z'):
+                    shifted -= 26
+                elif shifted < ord('a'):
+                    shifted += 26
+            else:
+                if shifted > ord('Z'):
+                    shifted -= 26
+                elif shifted < ord('A'):
+                    shifted += 26
+            encrypted.append(chr(shifted))
+        else:
+            encrypted.append(char)
+    return ''.join(encrypted)
 
-# Original Level 0-1 Endpoints (Unchanged)
+# ========== LEVEL 0-1 ENDPOINTS (UNTOUCHED) ==========
 @app.route('/get-level0', methods=["GET"])
 def get_level0():
     return jsonify({"binary": "101010"})
@@ -117,7 +137,37 @@ def get_level1():
         "value_name": "LockAdministrator"
     })
 
-# New Level 2-3 Endpoints
+# ========== LEVEL 2-3 ENDPOINTS ==========
+
+def ensure_admin_exists():
+    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+    user_db_path = os.path.join(documents_path, "user_db.json")
+    default_admin_hash = hashlib.sha256("admin123".encode()).hexdigest()
+
+    # Check if the user database exists
+    if not os.path.exists(user_db_path):
+        user_db = {"users": []}
+    else:
+        with open(user_db_path, 'r') as f:
+            user_db = json.load(f)
+    
+    # Check if Admin user exists
+    if not any(user['username'] == "Admin" for user in user_db['users']):
+        admin_user = {
+            "username": "Admin",
+            "password_hash": default_admin_hash,
+            "access_level": 15,
+            "permissions": ["full"]
+        }
+        user_db['users'].append(admin_user)
+        
+        with open(user_db_path, 'w') as f:
+            json.dump(user_db, f, indent=4)
+        print("Admin user added.")
+    else:
+        print("Admin user already exists.")
+
+
 @app.route('/get-level2', methods=["GET"])
 def get_level2():
     documents_path = os.path.join(os.path.expanduser("~"), "Documents")
@@ -125,6 +175,8 @@ def get_level2():
     
     user_db_path = os.path.join(documents_path, "user_db.json")
     default_admin_hash = hashlib.sha256("admin123".encode()).hexdigest()
+
+    ensure_admin_exists()
     
     if not os.path.exists(user_db_path):
         user_db = {
@@ -200,6 +252,44 @@ def login():
         return jsonify({"message": "Login successful"}), 200
     return jsonify({"message": "Invalid credentials"}), 401
 
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.pop('username', None)
+    return jsonify({"message": "Logged out"}), 200
+
+@app.route('/check-admin-status', methods=['GET'])
+def check_admin_status():
+    if 'username' not in session:
+        return jsonify({"is_admin": False})
+    
+    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+    user_db_path = os.path.join(documents_path, "user_db.json")
+    
+    with open(user_db_path, 'r') as f:
+        user_db = json.load(f)
+    
+    user = next((u for u in user_db['users'] if u['username'] == session['username']), None)
+    return jsonify({
+        "is_admin": user and user['username'] == "Admin",
+        "status": "Admin" if user and user['username'] == "Admin" else "Regular User"
+    })
+
+    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+    user_db_path = os.path.join(documents_path, "user_db.json")
+    
+    try:
+        with open(user_db_path, 'r') as f:
+            user_db = json.load(f)
+    except FileNotFoundError:
+        return jsonify({"success": False})
+    
+    admin_user = next((u for u in user_db['users'] if u['username'] == "Admin"), None)
+    default_hash = hashlib.sha256("admin123".encode()).hexdigest()
+    
+    if admin_user and admin_user['password_hash'] != default_hash:
+        return jsonify({"success": True})
+    return jsonify({"success": False})
+
 @app.route('/solve-level2', methods=["POST"])
 def solve_level2():
     if 'username' not in session:
@@ -219,41 +309,26 @@ def solve_level2():
         return jsonify({"message": "Level 2 solved!", "flag": FLAG_2}), 200
     return jsonify({"message": "Access level insufficient"}), 400
 
-@app.route('/get-level3', methods=["GET"])
-def get_level3():
-    return jsonify({
-        "challenge": "Change the Admin user's password in the database",
-        "requirements": [
-            "1. Locate the Admin user in user_db.json",
-            "2. Generate SHA-256 hash of a new password",
-            "3. Replace existing password_hash with new hash"
-        ],
-        "hint": "Default Admin password is 'admin123'"
-    })
+@app.route('/encrypt-file', methods=['POST'])
+def encrypt_file():
+    data = request.get_json()
+    text = data.get('text', '')
+    encrypted_text = caesar_encrypt(text)
+    return jsonify({"encrypted_text": encrypted_text})
 
-@app.route('/solve-level3', methods=["POST"])
+@app.route('/get-encrypted-flag', methods=['GET'])
+def get_encrypted_flag():
+    encrypted_flag = caesar_encrypt(FLAG_3)
+    return jsonify({"encrypted_flag": encrypted_flag})
+
+@app.route('/solve-level3', methods=['POST'])
 def solve_level3():
-    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-    user_db_path = os.path.join(documents_path, "user_db.json")
-    
-    try:
-        with open(user_db_path, 'r') as f:
-            user_db = json.load(f)
-    except FileNotFoundError:
-        return jsonify({"message": "User database missing"}), 400
-
-    admin_user = next((u for u in user_db['users'] if u['username'] == "Admin"), None)
-    if not admin_user:
-        return jsonify({"message": "Admin account missing"}), 400
-
-    default_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    if admin_user['password_hash'] != default_hash:
-        return jsonify({
-            "message": "Level 3 solved!",
-            "flag": FLAG_3
-        }), 200
-    
-    return jsonify({"message": "Admin password not modified"}), 400
+    data = request.get_json()
+    answer = data.get('answer', '').strip()
+    if answer == FLAG_3:
+        return jsonify({"message": f"Level 3 solved!"}), 200
+    else:
+        return jsonify({"message": "Incorrect answer."}), 400
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
