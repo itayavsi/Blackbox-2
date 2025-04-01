@@ -4,6 +4,9 @@ import winreg
 import logging
 import json
 import hashlib
+import socket
+import base64
+import subprocess
 
 BASE_URL = "http://127.0.0.1:5000"
 
@@ -228,13 +231,108 @@ def solve_level_3():
             print("Invalid choice.")
 
 def solve_level_4():
+    print("\n=== LEVEL 4: PROCESS SANDBOX ESCAPE CHALLENGE ===")
+    
+    # Get the challenge information
+    response = requests.get(f"{BASE_URL}/get-level4")
+    if response.status_code == 200:
+        challenge_info = response.json()
+        print("\nChallenge:", challenge_info.get("challenge"))
+        print("Instructions:", challenge_info.get("instructions"))
+        print("Process Name:", challenge_info.get("process_name"))
+        print(f"Process ID: {challenge_info.get('process_id')}")
+        print("Hint:", challenge_info.get("hint"))
+        
+        while True:
+            print("\n1. Check Process Status")
+            print("2. Help - Kill Process Instructions")
+            print("3. Proceed to Part 2 (after terminating process)")
+            print("4. Exit to Main Menu")
+            
+            choice = input("Choose option: ").strip()
+            
+            if choice == '1':
+                status_resp = requests.get(f"{BASE_URL}/check-process-status")
+                if status_resp.status_code == 200:
+                    status_info = status_resp.json()
+                    print(f"\nStatus: {status_info.get('status')}")
+                    print(f"Message: {status_info.get('message')}")
+                    if status_info.get('status') == 'running':
+                        print(f"Process ID: {status_info.get('pid')}")
+                else:
+                    print("Failed to check process status")
+            
+            elif choice == '2':
+                print("\nTo terminate the process, you need to do it manually:")
+                print("1. Use Task Manager: Press Ctrl+Shift+Esc, find the Python process with the right PID and End Task")
+                print(f"2. Use Command Prompt: Run 'taskkill /F /PID {challenge_info.get('process_id')}'")
+                print(f"3. Use PowerShell: Run 'Stop-Process -Id {challenge_info.get('process_id')} -Force'")
+                print("\nThis is a manual step you must complete outside this program.")
+                print("Once you've terminated the process, check the status again to confirm.")
+            
+            elif choice == '3':
+                status_resp = requests.get(f"{BASE_URL}/check-process-status")
+                if status_resp.status_code == 200 and status_resp.json().get('status') == 'terminated':
+                    return solve_level_4_part2()
+                else:
+                    print("\nYou must terminate the challenge process first!")
+                    print("Use option 2 for instructions on how to manually terminate the process.")
+            
+            elif choice == '4':
+                return False
+            
+            else:
+                print("Invalid choice.")
+    else:
+        print("Failed to get Level 4 challenge.")
+        return False
+
+# Remove the automatic decode option
+def solve_level_4_part2():
+    print("\n=== LEVEL 4 PART 2: BASE64 DECODING CHALLENGE ===")
+    
+    response = requests.get(f"{BASE_URL}/get-level4-part2")
+    if response.status_code == 200:
+        challenge_info = response.json()
+        print("\nChallenge:", challenge_info.get("challenge"))
+        encoded_flag = challenge_info.get("encoded_flag")
+        print("Encoded Flag:", encoded_flag)
+        print("Hint:", challenge_info.get("hint"))
+        
+        while True:
+            print("\n1. Enter Decoded Flag")
+            print("2. Exit to Main Menu")
+            
+            choice = input("Choose option: ").strip()
+            
+            if choice == '1':
+                answer = input("Enter the decoded flag: ").strip()
+                resp = requests.post(f"{BASE_URL}/solve-level4", json={"answer": answer})
+                if resp.status_code == 200:
+                    print(f"\n{resp.json().get('message')}")
+                    print("\nCongratulations! You've completed Level 4!")
+                    return True
+                else:
+                    print(f"\n{resp.json().get('message')}")
+            
+            elif choice == '2':
+                return False
+            
+            else:
+                print("Invalid choice.")
+    else:
+        print("Failed to get Level 4 Part 2 challenge.")
+        return False
+
+def solve_level_5():
     pass
+
 
 def main():
     print("Starting CTF Challenge...")
     set_registry_value(r"SOFTWARE\CTF_Simulation", "LockAdministrator", '1')
     ensure_admin_exists()
-    solve_level_3()
+    solve_level_4()
 
 
 if __name__ == "__main__":
