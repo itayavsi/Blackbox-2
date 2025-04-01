@@ -6,6 +6,9 @@ import winreg as reg
 from flask import Flask, jsonify, make_response, request, session
 import json
 import hashlib
+import base64
+import subprocess
+import sys
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
@@ -15,8 +18,12 @@ FLAG_0 = "42"
 FLAG_1 = "FileSystemMasterKey2024!"
 FLAG_2 = "AccessLevelUnlocked2024!"
 FLAG_3 = "AdminPrivilegeEscalation2024!"
+FLAG_4 = "ProcessSandboxEscape2024!"
 
 AcssesCounter = 0
+challenge_process = None
+socket_server_running = False
+socket_server_thread = None
 
 @app.before_request
 def initialize():
@@ -274,22 +281,6 @@ def check_admin_status():
         "status": "Admin" if user and user['username'] == "Admin" else "Regular User"
     })
 
-    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-    user_db_path = os.path.join(documents_path, "user_db.json")
-    
-    try:
-        with open(user_db_path, 'r') as f:
-            user_db = json.load(f)
-    except FileNotFoundError:
-        return jsonify({"success": False})
-    
-    admin_user = next((u for u in user_db['users'] if u['username'] == "Admin"), None)
-    default_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    
-    if admin_user and admin_user['password_hash'] != default_hash:
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
 @app.route('/solve-level2', methods=["POST"])
 def solve_level2():
     if 'username' not in session:
@@ -329,6 +320,104 @@ def solve_level3():
         return jsonify({"message": f"Level 3 solved!"}), 200
     else:
         return jsonify({"message": "Incorrect answer."}), 400
+    
+# ========== LEVEL 4 ENDPOINTS (MODIFIED) ==========
+               
+@app.route('/get-level4', methods=["GET"])
+def get_level4():
+    global challenge_process
+    
+    # Check if a process is already running
+    if challenge_process and challenge_process.poll() is None:
+        # Process already running, return its info
+        return jsonify({
+            "challenge": "Process Sandbox Escape Challenge",
+            "instructions": "Find and terminate the Python process that was launched",
+            "process_name": "python.exe (running challenge_script.py)",
+            "process_id": challenge_process.pid,
+            "hint": "Use Task Manager or taskkill to terminate the process with the given PID"
+        })
+    
+    # Start a new separate Python process for the challenge
+    try:
+        # Create a simple Python script that just sleeps
+        script_path = os.path.join(os.path.expanduser("~"), "Documents", "challenge_script.py")
+        with open(script_path, 'w') as f:
+            f.write("import time\n")
+            f.write("import os\n")
+            f.write("print('CTF Challenge Process Running - PID:', os.getpid())\n")
+            f.write("print('This process must be terminated to complete Level 4')\n")
+            f.write("time.sleep(3600)  # Sleep for 1 hour\n")
+        
+        # Start a completely separate Python process
+        challenge_process = subprocess.Popen([sys.executable, script_path], 
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL,
+                                    creationflags=subprocess.CREATE_NO_WINDOW)
+        
+        return jsonify({
+            "challenge": "Process Sandbox Escape Challenge",
+            "instructions": "Find and terminate the Python process that was just launched",
+            "process_name": "python.exe (running challenge_script.py)",
+            "process_id": challenge_process.pid,
+            "hint": "Use Task Manager or taskkill to terminate the process with the given PID"
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "message": "Failed to start challenge process"
+        }), 500
+    
+@app.route('/check-process-status', methods=["GET"])
+def check_process_status():
+    global challenge_process
+    
+    if not challenge_process:
+        return jsonify({"status": "No process launched"}), 404
+    
+    # Check if process is still running
+    try:
+        # Poll the process (returns None if still running, or returncode if terminated)
+        if challenge_process.poll() is None:
+            return jsonify({
+                "status": "running",
+                "pid": challenge_process.pid,
+                "message": "Process is still running. Terminate it to continue."
+            })
+        else:
+            # Process has been terminated by external means (not by us)
+            return jsonify({
+                "status": "terminated",
+                "message": "Process successfully terminated! Proceed to the next part."
+            })
+    except Exception:
+        # Process has been terminated or can't be accessed
+        return jsonify({
+            "status": "terminated",
+            "message": "Process successfully terminated! Proceed to the next part."
+        })
+
+@app.route('/get-level4-part2', methods=["GET"])
+def get_level4_part2():
+    # Encode the flag with base64
+    encoded_flag = base64.b64encode(FLAG_4.encode()).decode()
+    
+    return jsonify({
+        "challenge": "Decode the base64-encoded flag",
+        "encoded_flag": encoded_flag,
+        "hint": "Use a base64 decoder to reveal the flag"
+    })
+
+@app.route('/solve-level4', methods=["POST"])
+def solve_level4():
+    data = request.get_json()
+    answer = data.get('answer', '').strip()
+    
+    if answer == FLAG_4:
+        return jsonify({"message": "Level 4 solved! Congratulations!"}), 200
+    else:
+        return jsonify({"message": "Incorrect answer. Try again."}), 400
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
