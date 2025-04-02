@@ -9,6 +9,10 @@ import hashlib
 import base64
 import subprocess
 import sys
+import socket
+import threading
+import time
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
@@ -323,102 +327,167 @@ def solve_level3():
     
 # ========== LEVEL 4 ENDPOINTS (MODIFIED) ==========
                
-@app.route('/get-level4', methods=["GET"])
-def get_level4():
+
+def get_challenge_info():
+    """
+    Mimics your /get-level4 endpoint: if a challenge process is already running, returns its info;
+    otherwise, starts a new process and returns its details.
+    """
     global challenge_process
-    
-    # Check if a process is already running
     if challenge_process and challenge_process.poll() is None:
-        # Process already running, return its info
-        return jsonify({
+        info = {
             "challenge": "Process Sandbox Escape Challenge",
             "instructions": "Find and terminate the Python process that was launched",
             "process_name": "python.exe (running challenge_script.py)",
             "process_id": challenge_process.pid,
             "hint": "Use Task Manager or taskkill to terminate the process with the given PID"
-        })
-    
-    # Start a new separate Python process for the challenge
-    try:
-        # Create a simple Python script that just sleeps
-        script_path = os.path.join(os.path.expanduser("~"), "Documents", "challenge_script.py")
-        with open(script_path, 'w') as f:
-            f.write("import time\n")
-            f.write("import os\n")
-            f.write("print('CTF Challenge Process Running - PID:', os.getpid())\n")
-            f.write("print('This process must be terminated to complete Level 4')\n")
-            f.write("time.sleep(3600)  # Sleep for 1 hour\n")
-        
-        # Start a completely separate Python process
-        challenge_process = subprocess.Popen([sys.executable, script_path], 
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL,
-                                    creationflags=subprocess.CREATE_NO_WINDOW)
-        
-        return jsonify({
-            "challenge": "Process Sandbox Escape Challenge",
-            "instructions": "Find and terminate the Python process that was just launched",
-            "process_name": "python.exe (running challenge_script.py)",
-            "process_id": challenge_process.pid,
-            "hint": "Use Task Manager or taskkill to terminate the process with the given PID"
-        })
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "message": "Failed to start challenge process"
-        }), 500
-    
-@app.route('/check-process-status', methods=["GET"])
-def check_process_status():
-    global challenge_process
-    
-    if not challenge_process:
-        return jsonify({"status": "No process launched"}), 404
-    
-    # Check if process is still running
-    try:
-        # Poll the process (returns None if still running, or returncode if terminated)
-        if challenge_process.poll() is None:
-            return jsonify({
-                "status": "running",
-                "pid": challenge_process.pid,
-                "message": "Process is still running. Terminate it to continue."
-            })
-        else:
-            # Process has been terminated by external means (not by us)
-            return jsonify({
-                "status": "terminated",
-                "message": "Process successfully terminated! Proceed to the next part."
-            })
-    except Exception:
-        # Process has been terminated or can't be accessed
-        return jsonify({
-            "status": "terminated",
-            "message": "Process successfully terminated! Proceed to the next part."
-        })
+        }
+    else:
+        try:
+            script_path = os.path.join(os.path.expanduser("~"), "Documents", "challenge_script.py")
+            with open(script_path, 'w') as f:
+                f.write("import time\n")
+                f.write("import os\n")
+                f.write("print('CTF Challenge Process Running - PID:', os.getpid())\n")
+                f.write("print('This process must be terminated to complete Level 4')\n")
+                f.write("time.sleep(3600)  # Sleep for 1 hour\n")
 
-@app.route('/get-level4-part2', methods=["GET"])
+            # Start the challenge process
+            challenge_process = subprocess.Popen([sys.executable, script_path],
+                                                 stdout=subprocess.DEVNULL,
+                                                 stderr=subprocess.DEVNULL,
+                                                 creationflags=subprocess.CREATE_NO_WINDOW)
+            info = {
+                "challenge": "Process Sandbox Escape Challenge",
+                "instructions": "Find and terminate the Python process that was just launched",
+                "process_name": "python.exe (running challenge_script.py)",
+                "process_id": challenge_process.pid,
+                "hint": "Use Task Manager or taskkill to terminate the process with the given PID"
+            }
+        except Exception as e:
+            info = {
+                "error": str(e),
+                "message": "Failed to start challenge process"
+            }
+    return info
+
+def check_process_status():
+    """
+    Mimics the /check-process-status endpoint.
+    """
+    global challenge_process
+    if not challenge_process:
+        return {"status": "No process launched", "message": "Start the challenge first using option 1."}
+    try:
+        if challenge_process.poll() is None:
+            return {
+                "status": "running",
+                "process_id": challenge_process.pid,
+                "message": "Process is still running. Terminate it to proceed to Part 2."
+            }
+        else:
+            return {
+                "status": "terminated",
+                "message": "Process successfully terminated! You may now request Part 2."
+            }
+    except Exception:
+        return {
+            "status": "terminated",
+            "message": "Process is terminated or inaccessible. You may now request Part 2."
+        }
+
 def get_level4_part2():
-    # Encode the flag with base64
+    """
+    Mimics the /get-level4-part2 endpoint: returns the base64 encoded flag challenge.
+    """
     encoded_flag = base64.b64encode(FLAG_4.encode()).decode()
-    
-    return jsonify({
+    return {
         "challenge": "Decode the base64-encoded flag",
         "encoded_flag": encoded_flag,
         "hint": "Use a base64 decoder to reveal the flag"
-    })
+    }
 
-@app.route('/solve-level4', methods=["POST"])
-def solve_level4():
-    data = request.get_json()
-    answer = data.get('answer', '').strip()
-    
-    if answer == FLAG_4:
-        return jsonify({"message": "Level 4 solved! Congratulations!"}), 200
-    else:
-        return jsonify({"message": "Incorrect answer. Try again."}), 400
+def interactive_level4_session(conn):
+    """
+    Provides an interactive menu for Level 4 over the socket.
+    """
+    welcome = (
+        "Welcome to Level 4 Challenge (Process Sandbox Escape) via Socket!\n"
+        "Select an option by typing the corresponding number and pressing Enter:\n"
+        "1. Get Challenge Info (Start challenge process if needed)\n"
+        "2. Check Process Status\n"
+        "3. Get Part 2 Challenge (if process terminated)\n"
+        "4. Exit\n"
+    )
+    conn.sendall(welcome.encode())
 
+    while True:
+        try:
+            data = conn.recv(1024).decode().strip()
+            if not data:
+                break  # connection closed
+
+            if data == "1":
+                info = get_challenge_info()
+                response = json.dumps(info, indent=2) + "\n"
+                conn.sendall(response.encode())
+
+            elif data == "2":
+                status = check_process_status()
+                response = json.dumps(status, indent=2) + "\n"
+                conn.sendall(response.encode())
+
+            elif data == "3":
+                # Only allow Part 2 if the process is terminated.
+                status = check_process_status()
+                if status.get("status") == "terminated":
+                    part2 = get_level4_part2()
+                    response = json.dumps(part2, indent=2) + "\n"
+                else:
+                    response = json.dumps({
+                        "message": "Challenge process is still running. Please terminate it before requesting Part 2."
+                    }, indent=2) + "\n"
+                conn.sendall(response.encode())
+
+            elif data == "4":
+                goodbye = "Exiting Level 4 session. Goodbye!\n"
+                conn.sendall(goodbye.encode())
+                break
+
+            else:
+                msg = "Invalid option. Please select 1, 2, 3, or 4.\n"
+                conn.sendall(msg.encode())
+
+            # Re-send the menu prompt after each action
+            conn.sendall(welcome.encode())
+        except Exception as e:
+            error_msg = f"Error: {e}\n"
+            conn.sendall(error_msg.encode())
+            break
+
+    conn.close()
+
+def level4_socket_server():
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind(('127.0.0.1', 6000))
+    server_socket.listen(5)
+    print("Interactive Level 4 socket server listening on port 6000...")
+
+    while True:
+        conn, addr = server_socket.accept()
+        print(f"Connected to {addr}")
+        threading.Thread(target=interactive_level4_session, args=(conn,), daemon=True).start()
+
+def start_level4_socket_server():
+    socket_thread = threading.Thread(target=level4_socket_server, daemon=True)
+    socket_thread.start()
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    app.run(debug=True, port=5000)
+    # Start the interactive socket server alongside your Flask app (if needed)
+    start_level4_socket_server()
+    # Optionally, you could start your Flask app here as well:
+    # app.run(debug=True, port=5000)
+    # For this standalone example, we'll just keep the socket server running.
+    while True:
+        time.sleep(1)
+
