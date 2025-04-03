@@ -23,6 +23,7 @@ FLAG_1 = "FileSystemMasterKey2024!"
 FLAG_2 = "AccessLevelUnlocked2024!"
 FLAG_3 = "AdminPrivilegeEscalation2024!"
 FLAG_4 = "ProcessSandboxEscape2024!"
+FLAG_5 = "EncryptedLogAccess2024!"
 
 AcssesCounter = 0
 challenge_process = None
