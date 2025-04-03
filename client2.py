@@ -250,15 +250,37 @@ def solve_level_4():
             solve_level_4()
     
 
+
 def solve_level_5():
-    pass
+    requests.get(f"{BASE_URL}/get-level5")
+    """Solve Level 5: Decrypt Security Log Challenge"""
+    print("\nLevel 5: Decrypt Security Log Challenge")
+
+    # Read the encrypted log file
+    enc_log_path = r"C:\ProgramData\CTF_Challenge\logs\security_log.enc"
+    with open(enc_log_path, 'rb') as f:
+        encrypted_data = f.read()
+
+    # Display the encrypted contents to the user
+    print("\nEncrypted Data:")
+    print(encrypted_data)
+
+    # Guide the user to manually decrypt the file and input the flag
+    print("\nPlease manually decrypt the above data using the XOR key and input the flag.")
+    ans = input("Enter the flag for Level 5: ").strip()
+    
+    # Submit the user-provided flag for verification
+    if ans == "EncryptedLogAccess2024!":
+        print("Yes")
+    else:
+        print("No")
 
 
 def main():
     print("Starting CTF Challenge...")
     set_registry_value(r"SOFTWARE\CTF_Simulation", "LockAdministrator", '1')
     ensure_admin_exists()
-    solve_level_4()
+    solve_level_5()
 
 
 if __name__ == "__main__":
