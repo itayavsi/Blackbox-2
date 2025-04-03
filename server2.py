@@ -34,6 +34,27 @@ def initialize():
     setup_level1_registry()
     setup_level2_registry()
 
+
+def setup_level5_encrypted_log():
+    """Create an encrypted log file using XOR encryption."""
+    key_path = r"SOFTWARE\CTF_Simulation"
+    xor_key = os.urandom(16)  # Generate a random XOR key
+    reg_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
+    reg.SetValueEx(reg_key, "XOR_Key", 0, reg.REG_BINARY, xor_key)
+    reg.CloseKey(reg_key)
+
+    log_path = r"C:\ProgramData\CTF_Challenge\logs\security_log.enc"
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    # Example log content
+    log_content = FLAG_5
+    encrypted_content = bytes([b ^ xor_key[i % len(xor_key)] for i, b in enumerate(log_content.encode())])
+
+    with open(log_path, 'wb') as f:
+        f.write(encrypted_content)
+
+    return log_path
+
 def setup_level1_registry():
     key_path = r"SOFTWARE\CTF_Simulation"
     try:
@@ -481,6 +502,27 @@ def level4_socket_server():
 def start_level4_socket_server():
     socket_thread = threading.Thread(target=level4_socket_server, daemon=True)
     socket_thread.start()
+
+@app.route('/get-level5', methods=["GET"])
+def get_level5():
+    """Retrieve challenge for Stage 5"""
+    log_path = setup_level5_encrypted_log()
+    return jsonify({
+        "challenge": "Decrypt the security log file to access the flag.",
+        "file_path": log_path,
+        "hint": "Use the XOR key stored in the registry to decrypt the log."
+    })
+
+@app.route('/solve-level5', methods=["POST"])
+def solve_level5():
+    """Validate Stage 5 solution"""
+    data = request.get_json()
+    decrypted_log = data.get("decrypted_log")
+
+    if decrypted_log == FLAG_5:
+        return make_response(jsonify({"message": "Level 5 solved!"}), 200)
+
+    return make_response(jsonify({"message": "Incorrect log content."}), 400)
 
 if __name__ == "__main__":
     # Start the interactive socket server alongside your Flask app (if needed)
