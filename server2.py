@@ -3,9 +3,8 @@ import random
 import string
 import logging
 import winreg as reg
-from flask import Flask, jsonify, make_response, request, session
+from flask import Flask, jsonify, make_response, request
 import json
-import hashlib
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(32))
@@ -13,8 +12,8 @@ app.config['SECRET_KEY'] = ''.join(random.choice(string.ascii_letters + string.d
 # Flags for different levels
 FLAG_0 = "42"
 FLAG_1 = "FileSystemMasterKey2024!"
-FLAG_2 = "AccessLevelUnlocked2024!"
-FLAG_3 = "AdminPrivilegeEscalation2024!"
+FLAG_2 = "AccessLevelUnlocked2024!"  # New flag for Stage 2
+FLAG_5 = "EncryptedLogAccess2024!"  # New flag for Stage 5
 
 AcssesCounter = 0
 
@@ -26,37 +25,86 @@ def initialize():
 def setup_level1_registry():
     key_path = r"SOFTWARE\CTF_Simulation"
     try:
+        # Create or open the key
         ctf_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
+        
+        # Set the LockAdministrator value, defaulting to '1' (locked)
         reg.SetValueEx(ctf_key, "LockAdministrator", 0, reg.REG_SZ, "1")
+        
+        # Close the key
         reg.CloseKey(ctf_key)
     except PermissionError:
-        print("Error: Registry setup failed! Ensure admin privileges.")
+        print("Error: Registry setup failed! Ensure the server is running with admin privileges.")
     except Exception as e:
-        print(f"Registry setup error: {e}")
+        print(f"Unexpected error during registry setup: {e}")
 
 def setup_level2_registry():
+    """Setup registry for Stage 2 level"""
     key_path = r"SOFTWARE\CTF_Simulation"
     try:
         ctf_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
+        # Initialize with low access level
         reg.SetValueEx(ctf_key, "UserAccessLevel", 0, reg.REG_SZ, "8")
         reg.CloseKey(ctf_key)
     except Exception as e:
-        print(f"Stage 2 Registry error: {e}")
+        print(f"Stage 2 Registry setup error: {e}")
+
+def setup_level5_encrypted_log():
+    """Create an encrypted log file using XOR encryption."""
+    key_path = r"SOFTWARE\CTF_Simulation"
+    xor_key = os.urandom(16)  # Generate a random XOR key
+    reg_key = reg.CreateKey(reg.HKEY_CURRENT_USER, key_path)
+    reg.SetValueEx(reg_key, "XOR_Key", 0, reg.REG_BINARY, xor_key)
+    reg.CloseKey(reg_key)
+
+    log_path = r"C:\ProgramData\CTF_Challenge\logs\security_log.enc"
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    # Example log content
+    log_content = "This is a secure log entry."
+    encrypted_content = bytes([b ^ xor_key[i % len(xor_key)] for i, b in enumerate(log_content.encode())])
+
+    with open(log_path, 'wb') as f:
+        f.write(encrypted_content)
+
+    return log_path
+
+@app.route('/get-level5', methods=["GET"])
+def get_level5():
+    """Retrieve challenge for Stage 5"""
+    log_path = setup_level5_encrypted_log()
+    return jsonify({
+        "challenge": "Decrypt the security log file to access the flag.",
+        "file_path": log_path,
+        "hint": "Use the XOR key stored in the registry to decrypt the log."
+    })
+
+@app.route('/solve-level5', methods=["POST"])
+def solve_level5():
+    """Validate Stage 5 solution"""
+    data = request.get_json()
+    decrypted_log = data.get("decrypted_log")
+
+    if decrypted_log == FLAG_5:
+        return make_response(jsonify({"message": "Level 5 solved!"}), 200)
+
+    return make_response(jsonify({"message": "Incorrect log content."}), 400)
 
 def get_registry_value(key_path, value_name):
+    """Retrieve a value from the Windows Registry."""
     try:
         key = reg.OpenKey(reg.HKEY_CURRENT_USER, key_path, 0, reg.KEY_READ)
         value, _ = reg.QueryValueEx(key, value_name)
         reg.CloseKey(key)
         return str(value)
     except FileNotFoundError:
+        # If key doesn't exist, create it and return default value
         setup_level1_registry()
         return '1'
     except Exception as e:
         logging.error(f"Registry read error: {e}")
         return '1'
 
-# ========== LEVEL 0-1 ENDPOINTS (UNTOUCHED) ==========
 @app.route('/get-level0', methods=["GET"])
 def get_level0():
     return jsonify({"binary": "101010"})
@@ -67,6 +115,7 @@ def solve_level0():
     answer = data.get("answer")
     if answer == FLAG_0:
         return make_response(jsonify({"message": "Level 0 solved!"}), 200)
+        
     return make_response(jsonify({"message": "Incorrect answer. Try again."}), 400)
 
 @app.route('/solve-level1', methods=["POST"])
@@ -75,12 +124,17 @@ def solve_level1():
     answer = data.get("answer")
     if answer == FLAG_1:
         return make_response(jsonify({"message": "Level 1 solved!"}), 200)
+        
     return make_response(jsonify({"message": "Incorrect answer. Try again."}), 400)
 
 def setup_level1_filesystem():
+    """
+    Create a complex file system environment for Level 1 challenge
+    """
     base_path = os.path.join(os.path.expanduser(r"C:\Program Files"), "CTF_Challenge")
     os.makedirs(base_path, exist_ok=True)
 
+    # Create nested directories
     hidden_dirs = [
         os.path.join(base_path, "System", "hidden_config"),
         os.path.join(base_path, "Users", "Administrator", "secret_logs"),
@@ -89,23 +143,29 @@ def setup_level1_filesystem():
 
     for dir_path in hidden_dirs:
         os.makedirs(dir_path, exist_ok=True)
+        
+        # Hide directories on Windows
         if os.name == 'nt':
             try:
                 import ctypes
-                ctypes.windll.kernel32.SetFileAttributesW(dir_path, 0x02)
+                ctypes.windll.kernel32.SetFileAttributesW(dir_path, 0x02)  # FILE_ATTRIBUTE_HIDDEN
             except Exception as e:
-                logging.error(f"Directory hide error: {e}")
+                logging.error(f"Could not hide directory {dir_path}: {e}")
 
+    # Create initial flag file in Administrator directory
     flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
-    WriteAcsses(flag_location, base_path)
+    WriteAcsses(flag_location,base_path)
+
     return base_path
 
-def WriteAcsses(flag_location, base_path):
-    global AcssesCounter
+def WriteAcsses(flag_location,base_path):
     if AcssesCounter == 0:
+        flag_location = os.path.join(base_path, "Users", "Administrator", "secret_logs", "system_log.txt")
         with open(flag_location, 'w') as f:
             f.write("Access denied: LockAdministrator set to '1'")
-        AcssesCounter += 1
+        AcssesCounter+1
+    else:
+        return True
 
 @app.route('/get-level1', methods=["GET"])
 def get_level1():
@@ -117,148 +177,67 @@ def get_level1():
         "value_name": "LockAdministrator"
     })
 
-# ========== LEVEL 2-3 ENDPOINTS ==========
 @app.route('/get-level2', methods=["GET"])
 def get_level2():
+    """Retrieve challenge for Stage 2"""
+    # Ensure Documents directory exists
     documents_path = os.path.join(os.path.expanduser("~"), "Documents")
     os.makedirs(documents_path, exist_ok=True)
     
-    user_db_path = os.path.join(documents_path, "user_db.json")
-    default_admin_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    
-    if not os.path.exists(user_db_path):
-        user_db = {
-            "users": [{
-                "username": "Admin",
-                "password_hash": default_admin_hash,
-                "access_level": 15,
-                "permissions": ["full"]
-            }]
-        }
-        with open(user_db_path, 'w') as f:
-            json.dump(user_db, f, indent=4)
-
-    return jsonify({
-        "challenge": "Modify your access level to 15 in user_db.json after authentication",
-        "file_path": user_db_path,
-        "target_access_level": 15,
-        "hint": "Sign up, log in, then edit your access_level"
-    })
-
-@app.route('/signup', methods=['POST'])
-def signup():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-
-    if not username or not password:
-        return jsonify({"message": "Username and password required"}), 400
-
-    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
-    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+    # Create user database JSON file
     user_db_path = os.path.join(documents_path, "user_db.json")
     
-    user_db = {"users": []}
-    if os.path.exists(user_db_path):
-        with open(user_db_path, 'r') as f:
-            user_db = json.load(f)
-
-    if any(u['username'] == username for u in user_db['users']):
-        return jsonify({"message": "Username exists"}), 400
-
-    user_db['users'].append({
-        "username": username,
-        "password_hash": hashed_pw,
-        "access_level": 8,
-        "permissions": []
-    })
-
+    # Initial user database content
+    user_db = {
+        "users": [
+            {
+                "username": "default_user",
+                "access_level": 8,
+                "permissions": []
+            }
+        ]
+    }
+    
+    # Write the user database
     with open(user_db_path, 'w') as f:
         json.dump(user_db, f, indent=4)
-
-    return jsonify({"message": "Signup successful"}), 201
-
-@app.route('/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    hashed_pw = hashlib.sha256(password.encode()).hexdigest()
-
-    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-    user_db_path = os.path.join(documents_path, "user_db.json")
     
-    if not os.path.exists(user_db_path):
-        return jsonify({"message": "User not found"}), 404
-
-    with open(user_db_path, 'r') as f:
-        user_db = json.load(f)
-
-    user = next((u for u in user_db['users'] if u['username'] == username and u['password_hash'] == hashed_pw), None)
-    if user:
-        session['username'] = username
-        return jsonify({"message": "Login successful"}), 200
-    return jsonify({"message": "Invalid credentials"}), 401
-
-@app.route('/logout', methods=['POST'])
-def logout():
-    session.pop('username', None)
-    return jsonify({"message": "Logged out"}), 200
-
-@app.route('/check-admin-status', methods=['GET'])
-def check_admin_status():
-    if 'username' not in session:
-        return jsonify({"is_admin": False})
-    
-    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-    user_db_path = os.path.join(documents_path, "user_db.json")
-    
-    with open(user_db_path, 'r') as f:
-        user_db = json.load(f)
-    
-    user = next((u for u in user_db['users'] if u['username'] == session['username']), None)
     return jsonify({
-        "is_admin": user and user['username'] == "Admin",
-        "status": "Admin" if user and user['username'] == "Admin" else "Regular User"
+        "challenge": "Modify your access level from 8 to 15 in the user_db.json file",
+        "file_path": user_db_path,
+        "current_access_level": 8,
+        "target_access_level": 15,
+        "hint": "Edit the 'access_level' in the JSON file to 15"
     })
 
-@app.route('/verify-level3', methods=['POST'])
-def verify_level3():
+@app.route('/solve-level2', methods=["POST"])
+def solve_level2():
+    """Validate Stage 2 solution"""
+    data = request.get_json()
+    answer = data.get("answer")
+    
+    # Check user database
     documents_path = os.path.join(os.path.expanduser("~"), "Documents")
     user_db_path = os.path.join(documents_path, "user_db.json")
     
     try:
+        # Read the user database
         with open(user_db_path, 'r') as f:
             user_db = json.load(f)
-    except FileNotFoundError:
-        return jsonify({"success": False})
+        
+        # Check if access level is 15
+        current_level = user_db['users'][0]['access_level']
+        
+        if current_level == 15 and answer == FLAG_2:
+            return make_response(jsonify({"message": "Level 2 solved!"}), 200)
+    except Exception as e:
+        logging.error(f"Error reading user database: {e}")
     
-    admin_user = next((u for u in user_db['users'] if u['username'] == "Admin"), None)
-    default_hash = hashlib.sha256("admin123".encode()).hexdigest()
-    
-    if admin_user and admin_user['password_hash'] != default_hash:
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/solve-level2', methods=["POST"])
-def solve_level2():
-    if 'username' not in session:
-        return jsonify({"message": "Authentication required"}), 401
-
-    documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-    user_db_path = os.path.join(documents_path, "user_db.json")
-    
-    with open(user_db_path, 'r') as f:
-        user_db = json.load(f)
-
-    user = next((u for u in user_db['users'] if u['username'] == session['username']), None)
-    if not user:
-        return jsonify({"message": "User not found"}), 404
-
-    if user['access_level'] == 15:
-        return jsonify({"message": "Level 2 solved!", "flag": FLAG_2}), 200
-    return jsonify({"message": "Access level insufficient"}), 400
+    return make_response(jsonify({"message": "Access level not unlocked or incorrect flag"}), 400)
 
 if __name__ == "__main__":
+    # Set up logging
     logging.basicConfig(level=logging.INFO)
+    
+    # Run the Flask app
     app.run(debug=True, port=5000)
