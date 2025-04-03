@@ -528,9 +528,7 @@ def solve_level5():
 if __name__ == "__main__":
     # Start the interactive socket server alongside your Flask app (if needed)
     start_level4_socket_server()
-    # Optionally, you could start your Flask app here as well:
-    # app.run(debug=True, port=5000)
-    # For this standalone example, we'll just keep the socket server running.
+    app.run(debug=True, port=5000)
     while True:
         time.sleep(1)
 
